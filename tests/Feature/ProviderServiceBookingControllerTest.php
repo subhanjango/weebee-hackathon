@@ -275,4 +275,65 @@ class ProviderServiceBookingControllerTest extends TestCase
 
         $response->assertStatus(200);
     }
+
+    /**
+     * @return void
+     * @test
+     */
+    public function book_slot_with_exceed_secondary_users_limit_validation_test()
+    {
+        $data = [
+            'service_id' => ProviderService::first()->id,
+            'date' => now()->next('Wednesday')->format('Y-m-d'), // is open
+            'start_time' => '08:00',
+            'end_time' => '08:10',
+            'primary_user_first_name' => $this->faker->firstName,
+            'primary_user_last_name' => $this->faker->lastName,
+            'primary_user_email_address' => $this->faker->email,
+            'secondary_users_active' => true,
+            'secondary_users' => [
+                [
+                    'clone_primary_user' => true,
+                ],
+                [
+                    'clone_primary_user' => false,
+                    'email' => $this->faker->email,
+                    'first_name' => $this->faker->firstName,
+                    'last_name' => $this->faker->lastName
+                ],
+                [
+                    'clone_primary_user' => false,
+                    'email' => $this->faker->email,
+                    'first_name' => $this->faker->firstName,
+                    'last_name' => $this->faker->lastName
+                ],
+                [
+                    'clone_primary_user' => false,
+                    'email' => $this->faker->email,
+                    'first_name' => $this->faker->firstName,
+                    'last_name' => $this->faker->lastName
+                ],
+                [
+                    'clone_primary_user' => false,
+                    'email' => $this->faker->email,
+                    'first_name' => $this->faker->firstName,
+                    'last_name' => $this->faker->lastName
+                ],
+                [
+                    'clone_primary_user' => false,
+                    'email' => $this->faker->email,
+                    'first_name' => $this->faker->firstName,
+                    'last_name' => $this->faker->lastName
+                ]
+            ]
+        ];
+
+        $response = $this->post('/api/book-slot', $data, ['Accept' => 'application/json']);
+
+        $error_reason = 'User limit exceeded';
+
+        $this->assertEquals(in_array($error_reason, (array)json_decode($response->content(), true)['reason']), true);
+
+        $response->assertStatus(400);
+    }
 }

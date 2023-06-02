@@ -71,7 +71,7 @@ class ProviderService extends Model
 
     public function getServiceForSlots($service_id, $day_number, $date, $start_time, $end_time)
     {
-        return $service = $this->with([
+        return $this->with([
             'schedule' => function ($query) use ($day_number) {
                 $query->where('day_number', $day_number);
             },
@@ -144,7 +144,6 @@ class ProviderService extends Model
             if (!$slot) {
                 return ['status' => false, 'reason' => 'No slot available for your ' . ($secondary_user_count + 1) . ' secondary user'];
             }
-
             $this->getServiceForSlots($service_id, $day_number, $date, $slot['slot_start_time'], $slot['slot_end_time']);
             $schedule = isset($service->schedule[0]) ? $service->schedule[0]->toArray() : [];
             $schedule_check = $this->scheduleCheck($schedule, $service);
