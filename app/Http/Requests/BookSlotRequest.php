@@ -23,34 +23,12 @@ class BookSlotRequest extends FormRequest
     {
         return [
             'service_id' => 'required|exists:provider_services,id',
-            'date' => 'required|date_format:Y-m-d',
-            'start_time' => 'required|date_format:H:i',
-            'end_time' => 'required|date_format:H:i',
-            'primary_user_first_name' => 'required',
-            'primary_user_last_name' => 'required',
-            'primary_user_email_address' => 'required|email',
-            'secondary_users_active' => 'required|boolean',
-            'secondary_users' => 'required_if:secondary_users_active,==,true|array',
-            'secondary_users.*.clone_primary_user' => 'required_if:secondary_users_active,==,true|boolean',
-            'secondary_users.*.email' => 'required_if:secondary_users.*.clone_primary_user,==,false||email',
-            'secondary_users.*.first_name' => 'required_if:secondary_users.*.clone_primary_user,==,false',
-            'secondary_users.*.last_name' => 'required_if:secondary_users.*.clone_primary_user,==,false',
-            'secondary_users_count' => 'nullable',
+            'date' => 'required|date_format:Y-m-d|after_or_equal:today',
+            'start_time' => 'required|date_format:H:i|after_or_equal:' . now()->format('H:i'),
+            'users' => 'required|array',
+            'users.*.first_name' => 'required',
+            'users.*.last_name' => 'required',
+            'users.*.email' => 'required|email',
         ];
-    }
-
-    public function all($keys = null)
-    {
-        if ($this->request->has('secondary_users')) {
-            $this->merge([
-                'secondary_users_count' => count($this->get('secondary_users'))
-            ]);
-        } else if ($this->request->has('secondary_users_active') && !$this->request->get('secondary_users_active')) {
-            $this->merge([
-                'secondary_users_count' => 0
-            ]);
-        }
-
-        return parent::all();
     }
 }

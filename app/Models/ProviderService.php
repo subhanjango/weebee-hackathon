@@ -69,45 +69,46 @@ class ProviderService extends Model
             }])->get();
     }
 
-    public function getServiceForSlots($service_id, $day_number, $date, $start_time, $end_time)
+    public function getServiceForSlots($service_id, $day_number, $date, $start_time)
     {
         return $this->with([
             'schedule' => function ($query) use ($day_number) {
                 $query->where('day_number', $day_number);
             },
-            'breaks' => function ($query) use ($day_number, $start_time, $end_time) {
+            'breaks' => function ($query) use ($day_number, $start_time) {
                 $query->where('day_number', $day_number)
-                    ->where(function ($query) use ($start_time, $end_time) {
-                        $query->whereBetween('start_time', [$start_time, $end_time]);
-                        $query->orWhereBetween('start_time', [$start_time, $end_time]);
+                    ->where(function ($query) use ($start_time) {
+                        $query->where('start_time', '<=', $start_time);
+                        $query->where('end_time', '>=', $start_time);
                     });
             },
-            'planned_off' => function ($query) use ($date, $start_time, $end_time) {
-                $query->where('date', $date)
-                    ->where(function ($query) use ($start_time, $end_time) {
-                        $query->whereBetween('start_time', [$start_time, $end_time]);
-                        $query->orWhereBetween('end_time', [$start_time, $end_time]);
-                        $query->orWhere('full_day_off', 1);
-                    });
+            'planned_off' => function ($query) use ($date, $start_time) {
+                $query->where('date', $date);
+                $query->where(function ($query) use ($start_time) {
+                    $query->where(function ($query) use ($start_time) {
+                        $query->where('start_time', '<=', $start_time);
+                        $query->where('end_time', '>=', $start_time);
+                    })->orWhere('full_day_off', 1);
+                });
             },
-            'bookings' => function ($query) use ($date, $start_time, $end_time) {
+            'bookings' => function ($query) use ($date, $start_time) {
                 $query->where('date', $date)
-                    ->where(function ($query) use ($start_time, $end_time) {
-                        $query->whereBetween('start_time', [$start_time, $end_time]);
-                        $query->orWhereBetween('end_time', [$start_time, $end_time]);
+                    ->where(function ($query) use ($start_time) {
+                        $query->where('start_time', '<=', $start_time);
+                        $query->where('end_time', '>=', $start_time);
                     });
             }
         ])->find($service_id);
     }
 
 
-    public function isSlotAvailable($service_id, $date, $start_time, $end_time, $secondary_user_count)
+    public function isSlotAvailable($service_id, $date, $start_time, $users_count)
     {
         $day_number = config('constants.days')[strtoupper(Carbon::create($date)->format('l'))];
 
-        $service = $this->getServiceForSlots($service_id, $day_number, $date, $start_time, $end_time);
+        $service = $this->getServiceForSlots($service_id, $day_number, $date, $start_time);
 
-        if ($service->max_client_per_booking < ($secondary_user_count) + 1) {
+        if ($service->max_client_per_booking < $users_count) {
             return ['status' => false, 'reason' => 'User limit exceeded'];
         }
 
@@ -117,7 +118,7 @@ class ProviderService extends Model
 
         $schedule = isset($service->schedule[0]) ? $service->schedule[0]->toArray() : [];
 
-        $schedule_check = $this->scheduleCheck($schedule, $service);
+        $schedule_check = $this->scheduleCheck($schedule, $service, $users_count);
 
         if (!$schedule_check['status']) {
             return $schedule_check;
@@ -127,45 +128,19 @@ class ProviderService extends Model
 
         $slots = collect($slots);
 
-        $slotAvailable = $slots->where('slot_start_time', $start_time)->where('slot_end_time', $end_time)->first();
+        $slotAvailable = $slots->where('slot_start_time', $start_time)->first();
 
         if (!$slotAvailable) {
             return ['status' => false, 'reason' => 'Invalid slot'];
         }
 
-        $other_slots[0] = [
-            'slot_start_time' => $start_time,
-            'slot_end_time' => $end_time
-        ];
-        $error_slot = [];
-        $initial_slot = $slotAvailable;
-        for ($i = 0; $i < $secondary_user_count; $i++) {
-            $slot = $slots->where('slot_start_time', '>', $initial_slot['slot_start_time'])->where('slot_end_time', '>', $initial_slot['slot_end_time'])->first();
-            if (!$slot) {
-                return ['status' => false, 'reason' => 'No slot available for your ' . ($secondary_user_count + 1) . ' secondary user'];
-            }
-            $this->getServiceForSlots($service_id, $day_number, $date, $slot['slot_start_time'], $slot['slot_end_time']);
-            $schedule = isset($service->schedule[0]) ? $service->schedule[0]->toArray() : [];
-            $schedule_check = $this->scheduleCheck($schedule, $service);
-            if (!$schedule_check['status']) {
-                $error_slot = $schedule_check;
-                break;
-            }
-            $other_slots[$i + 1] = $slot;
-            $initial_slot = $slot;
-        }
-
-        if (count($error_slot)) {
-            return $error_slot;
-        }
-
         return [
             'status' => true,
-            'other_slots' => $other_slots
+            'slots' => $slotAvailable
         ];
     }
 
-    private function scheduleCheck($schedule, $service)
+    private function scheduleCheck($schedule, $service, $users_count)
     {
         if (!count($schedule) || $schedule['day_off']) {
             return ['status' => false, 'reason' => 'Day off'];
@@ -179,8 +154,10 @@ class ProviderService extends Model
             return ['status' => false, 'reason' => $service->breaks[0]->reason];
         }
 
-        if (isset($service->bookings[0])) {
-            return ['status' => false, 'reason' => 'Already booked'];
+        $space_left = ($service->max_client_per_booking - count($service->bookings));
+
+        if (isset($service->bookings[0]) && $space_left < $users_count) {
+            return ['status' => false, 'reason' => 'Slots are fully booked , available slot is for (' . $space_left . ') person(s)'];
         }
 
         return ['status' => true];
